@@ -3,55 +3,35 @@ const Builder = @import("std").build.Builder;
 
 pub fn build(b: *Builder) void {
     const target = b.standardTargetOptions(.{});
-    const mode = b.standardReleaseOptions();
+    const optimize = b.standardOptimizeOption(.{});
 
-    // Executable configuration
-    {
-        const exe = b.addExecutable("zmenu", "src/main.zig");
-        exe.install();
+    const exe = b.addExecutable(.{
+        .name = "zig-editor",
+        .root_source_file = .{ .path = "src/main.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
 
-        const run_cmd = exe.run();
-        run_cmd.step.dependOn(b.getInstallStep());
-        if (b.args) |args| {
-            run_cmd.addArgs(args);
-        }
+    exe.linkSystemLibrary("c");
+    exe.linkSystemLibrary("ncurses");
 
-        configureStep(exe, target, mode);
-
-        const run_step = b.step("run", "Run the app");
-        run_step.dependOn(&run_cmd.step);
-
-        exe.linkSystemLibrary("c");
+    const run_cmd = b.addRunArtifact(exe);
+    run_cmd.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_cmd.addArgs(args);
     }
 
-    // Testing configuration
-    {
-        const test_roots = &[_][]const u8{
-            "src/main.zig",
-        };
+    const run_step = b.step("run", "Run the app");
+    run_step.dependOn(&run_cmd.step);
 
-        const test_step = b.step("test", "Test the app");
+    const unit_tests = b.addTest(.{
+        .root_source_file = .{ .path = "src/main.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
 
-        for (test_roots) |test_root| {
-            const test_ = b.addTest(test_root);
-            configureStep(test_, target, mode);
-            test_step.dependOn(&test_.step);
-        }
-    }
-}
+    const run_unit_tests = b.addRunArtifact(unit_tests);
 
-fn configureStep(
-    step: *std.build.LibExeObjStep,
-    target: anytype, // FIXME: how do I describe this type
-    mode: std.builtin.Mode,
-) void {
-    step.setTarget(target);
-    step.setBuildMode(mode);
-
-    inline for (&[_]i32{
-        // Pkg{ .name = "poly", .path = "../zig-poly/src/poly.zig" },
-    }) |*pkg| {
-        // interface package
-        step.addPackage(pkg);
-    }
+    const test_step = b.step("test", "Run unit tests");
+    test_step.dependOn(&run_unit_tests.step);
 }

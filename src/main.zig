@@ -1,7 +1,9 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 
-const terminal = @import("terminal.zig");
-const utf8 = @import("utf8.zig"); // TODO: study unicode and implement it here
+const NCursesUI = @import("ui/NCursesUI.zig");
+
+// const utf8 = @import("utf8.zig"); // TODO: study unicode and implement it here
 
 const key = @import("key.zig");
 const Keybinding = key.Keybinding;
@@ -11,108 +13,92 @@ const KeymapStack = key.KeymapStack;
 const Editor = @import("Editor.zig");
 
 pub fn main() u8 {
+    const log = std.log.scoped(.main);
+
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
+    defer std.debug.assert(gpa.deinit() != .leak);
 
-    const i_stream = std.io.getStdIn();
-
-    const o_stream = std.io.getStdErr();
-    const o_stream_w = o_stream.writer();
-
-    var term = terminal.Terminal(.posix).init(i_stream, o_stream) catch {
-        o_stream_w.print("Fatal error - failed to enable raw mode\n", .{}) catch return 2;
+    var ui = NCursesUI.init() catch |err| {
+        log.err("failed to initialize UI: {}", .{err});
         return 1;
     };
-    defer term.deinit() catch {
-        o_stream_w.print("Warning - failed to disable raw mode. Your terminal might appear glitchy.\n", .{}) catch {};
+    defer ui.deinit() catch
+        log.err("failed to properly deinit UI - the temrinal might appear glitchy from now on", .{});
+
+    mainLoop(gpa.allocator(), &ui) catch |err| {
+        log.err("main loop fatal error: {}", .{err});
+        return 1;
     };
 
-    o_stream_w.print("Welcome!\r\n", .{}) catch return 2;
+    return 0;
+}
+
+pub fn mainLoop(alloc: Allocator, ui: anytype) !void {
+    // const log = std.log.scoped(.editor);
 
     var editor = Editor{};
     defer editor.deinit();
 
-    const bitch_keymap = Keymap{
-        .name = "Bitch Keymap",
-        .keys = &[_]Keybinding{
-            .{ .key = 'q', .action = .{ .pop_keymap = {} } },
-        },
-    };
+    var km_stack = std.ArrayList(Keymap).init(alloc);
+    defer km_stack.deinit();
 
-    const root_keymap = Keymap{
-        .name = "Root Keymap",
-        .keys = &[_]Keybinding{
-            .{ .key = 'q', .action = .{ .func = Editor.actions.quit } },
-            .{ .key = '', .action = .{ .func = Editor.actions.quit } },
-            .{ .key = 'g', .action = .{ .push_keymap = &bitch_keymap } },
-        },
-    };
-
-    var keymap_stack = KeymapStack.init(&gpa.allocator);
-    defer keymap_stack.deinit();
+    var last_message: [*:0]const u8 = "Welcome!";
 
     while (editor.is_active) {
-        // get a character from stdin
+        try ui.refresh();
+        try ui.setPos(.{.x = 0, .y = 0});
+        try ui.print(last_message);
+
         // TODO: read special sequences, whatever they are
-        const kc = term.getKey() catch {
-            o_stream_w.print("Fatal error - could not read from stdin\n", .{}) catch {};
-            return 2;
-        };
+        // handle a bunch of keys at once if they have been typed in a short amount of time (rather instantly - good
+        // for pasted content)
+        const kc = try ui.waitForKey();
 
         // resolve current keymap
-        switch (kc) {
-            0, 170 => unreachable,
-            else => {
-                const current_keymap = keymap_stack.getLastOrNull() orelse &root_keymap;
+        const current_keymap = &(km_stack.getLastOrNull() orelse root_keymap);
 
-                for (current_keymap.keys) |*keybinding| {
-                    if (keybinding.key != kc) continue;
+        for (current_keymap.keys) |*keybinding| {
+            if (keybinding.key != kc) continue;
 
-                    switch (keybinding.action) {
-                        .func => |func| func(&editor),
-                        .push_keymap => |keymap| {
-                            keymap_stack.push(keymap) catch {
-                                o_stream_w.print("Fatal error - could not allocate memory for keymap\r\n", .{}) catch return 2;
-                                return 1;
-                            };
+            switch (keybinding.action) {
+                .DoFunc => |func| func(&editor),
+                .PushKeymap => |keymap| {
+                    try km_stack.append(keymap.*);
 
-                            const no_name_str: []const u8 = "<no name>";
-                            var runtime_expr = keymap.name orelse no_name_str;
-                            o_stream_w.print("Entering keymap - name: {s}\r\n", .{runtime_expr}) catch return 2;
-                        },
-                        .pop_keymap => if (keymap_stack.popOrNull()) |_| {
-                            const no_name_str: []const u8 = "<no name>";
-                            var runtime_expr = (keymap_stack.getLastOrNull() orelse &root_keymap).name orelse no_name_str;
+                    const no_name_str = "<no name>";
+                    last_message = keymap.name orelse no_name_str;
+                },
+                .PopKeymap => if (km_stack.popOrNull()) |_| {
+                    const no_name_str = "<no name>";
+                    last_message = (km_stack.getLastOrNull() orelse root_keymap).name orelse no_name_str;
+                } else {
+                    last_message = "Attempted to pop off empty keymap stack";
+                },
+            }
 
-                            o_stream_w.print("Popped off stack - current one's name: {s}\r\n", .{runtime_expr}) catch return 2;
-                        } else {
-                            o_stream_w.print("Attempted to empty keymap stack\r\n", .{}) catch return 2;
-                        },
-                    }
-
-                    break;
-                } else switch (kc) {
-                    1...26 => |raw_n| {
-                        const n = raw_n - 1 + 65;
-                        o_stream_w.print(
-                            "Key Ctrl-{c} :: 0x{X} or ASCII {d}\r\n",
-                            .{ n, n, n },
-                        ) catch return 2;
-                    },
-                    128...255 => |n| o_stream_w.print(
-                        "Key <???> :: 0x{X} or ASCII {d}\r\n",
-                        .{ n, n },
-                    ) catch return 2,
-                    else => |n| {
-                        o_stream_w.print(
-                            "Key {c} :: 0x{X} or ASCII {d}\r\n",
-                            .{ n, n, n },
-                        ) catch return 2;
-                    },
-                }
+            break;
+        } else switch (kc) {
+            1...26 => |raw_n| {
+                const n = raw_n - 1 + 65;
+                try ui._printf("Key Ctrl-%c :: 0x%x or ASCII %d\r\n", .{ n, n, n });
             },
+            128...255 => |n| try ui._printf("Key <???> :: 0x%x or ASCII %d\r\n", .{ n, n }),
+            else => |n| try ui._printf("Key %c :: 0x%x or ASCII %d\r\n", .{ n, n, n }),
         }
     }
-
-    return 0;
 }
+
+const bitch_keymap = Keymap{
+    .name = "Bitch Keymap",
+    .keys = &[_]Keybinding{
+        .{ .key = 'q', .action = .{ .PopKeymap = {} } },
+    },
+};
+
+const root_keymap = Keymap{
+    .name = "Root Keymap",
+    .keys = &[_]Keybinding{
+        .{ .key = 'q', .action = .{ .DoFunc = Editor.actions.quit } },
+        .{ .key = 'g', .action = .{ .PushKeymap = &bitch_keymap } },
+    },
+};

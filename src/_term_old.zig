@@ -1,6 +1,7 @@
 // TODO: separate terminal output from input handling (different files)
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 const c = @cImport({
     @cInclude("unistd.h");
@@ -11,7 +12,7 @@ const key = @import("key.zig");
 const Keycode = key.Keycode;
 
 comptime {
-    switch (std.Target.current.os.tag) {
+    switch (builtin.os.tag) {
         .linux => {},
         else => |tag| @compileError("Unsupported OS: " ++ @tagName(tag)),
     }
@@ -28,8 +29,9 @@ pub const Kind = enum {
     posix,
 };
 
-// TODO: `kind` might not need to be compile time at some time.
-pub fn Terminal(comptime kind: Kind) type {
+// TODO: refactor this to a bunch of different impls of TerminalAPI that have functions for each thing. For example, a
+// NCursesAPI and a XorgAPI.
+pub fn Terminal(comptime _: Kind) type {
     return struct {
         input_stream: std.fs.File,
         output_stream: std.fs.File,
@@ -65,7 +67,8 @@ pub fn Terminal(comptime kind: Kind) type {
             while (true) {
                 const ch = blk: {
                     var buf: [1]u8 = undefined;
-                    _ = self.input_stream.read(&buf) catch |_| return GetKeyError.ReadError;
+                    _ = self.input_stream.read(&buf) catch
+                        return GetKeyError.ReadError;
                     break :blk buf[0];
                 };
 
@@ -74,9 +77,9 @@ pub fn Terminal(comptime kind: Kind) type {
             }
         }
 
-        fn setKeyPressThreshold(self: *Self, threshold: usize) error{NotOnRawMode}!void {
-            unreachable;
-        }
+        // fn setKeyPressThreshold(self: *Self, threshold: usize) error{NotOnRawMode}!void {
+        //     unreachable;
+        // }
 
         fn getOrigTermios(self: *Self) TermiosErr!Termios {
             return self.orig_termios orelse blk: {

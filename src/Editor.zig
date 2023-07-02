@@ -7,7 +7,7 @@ pub fn init() Self {
 }
 
 pub fn deinit(self: *Self) void {
-
+    self.* = undefined;
 }
 
 pub const actions = struct {
