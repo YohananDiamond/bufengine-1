@@ -1,0 +1,1 @@
+Perhaps use termbox2 instead of ncurses? - https://github.com/termbox/termbox2/blob/master/termbox2.h

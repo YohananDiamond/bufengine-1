@@ -1,6 +1,7 @@
-is_active: bool = true,
-
 const Self = @This();
+
+is_active: bool = true,
+last_message: [:0]const u8 = "Welcome!",
 
 pub fn init() Self {
     return Self{};

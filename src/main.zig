@@ -42,12 +42,9 @@ pub fn mainLoop(alloc: Allocator, ui: anytype) !void {
     var km_stack = std.ArrayList(Keymap).init(alloc);
     defer km_stack.deinit();
 
-    var last_message: [*:0]const u8 = "Welcome!";
-
     while (editor.is_active) {
-        try ui.refresh();
-        try ui.setPos(.{.x = 0, .y = 0});
-        try ui.print(last_message);
+        try ui.clear();
+        try ui.drawEditor(&editor);
 
         // TODO: read special sequences, whatever they are
         // handle a bunch of keys at once if they have been typed in a short amount of time (rather instantly - good
@@ -66,13 +63,13 @@ pub fn mainLoop(alloc: Allocator, ui: anytype) !void {
                     try km_stack.append(keymap.*);
 
                     const no_name_str = "<no name>";
-                    last_message = keymap.name orelse no_name_str;
+                    editor.last_message = keymap.name orelse no_name_str;
                 },
                 .PopKeymap => if (km_stack.popOrNull()) |_| {
                     const no_name_str = "<no name>";
-                    last_message = (km_stack.getLastOrNull() orelse root_keymap).name orelse no_name_str;
+                    editor.last_message = (km_stack.getLastOrNull() orelse root_keymap).name orelse no_name_str;
                 } else {
-                    last_message = "Attempted to pop off empty keymap stack";
+                    editor.last_message = "Attempted to pop off empty keymap stack";
                 },
             }
 
