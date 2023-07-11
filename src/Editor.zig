@@ -1,10 +1,13 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const FieldType = std.meta.FieldType;
 
 const math = @import("math.zig");
 const Vec2 = math.Vec2;
 
 const key = @import("key.zig");
+
+const degen = @import("degen.zig");
 
 const Self = @This();
 
@@ -18,31 +21,42 @@ pub fn deinit(self: *Self) void {
     self.* = undefined;
 }
 
-pub fn deinitFull(self: *@This()) void {
-    for (self.buffers.items) |*b| {
-        b.deinitFull(self.allocator);
-    }
-    self.buffers.deinit(self.allocator);
-    self.* = undefined;
-}
+pub const deinitFull = degen.genDeinitFull(@This(), .{
+    .allocator = .ignore,
+    .is_active = .ignore,
+    .buffers = struct {
+        pub fn deinit(self: anytype, alloc: Allocator) void {
+            for (self.items) |*i| {
+                i.deinitFull(alloc);
+            }
+            self.deinit(alloc);
+        }
+    }.deinit,
+    .buffer_idx = .ignore,
+    .last_message = .ignore,
+});
 
 pub const Buffer = struct {
     // TODO: use a specific string type (ropes?)
     lines: std.ArrayListUnmanaged(Line) = .{},
-    pos: Vec2(usize) = .{.x = 0, .y = 0},
+    pos: Vec2(usize) = .{ .x = 0, .y = 0 },
 
-    pub fn deinitFull(self: *@This(), alloc: Allocator) void {
-        for (self.lines.items) |l| {
-            alloc.free(l);
-        }
-        self.lines.deinit(alloc);
-        self.* = undefined;
-    }
+    pub const deinitFull = degen.genDeinitFull(@This(), .{
+        .lines = struct {
+            pub fn deinit(self: *FieldType(Buffer, .lines), alloc: Allocator) void {
+                for (self.items) |i| {
+                    alloc.free(i);
+                }
+                self.deinit(alloc);
+            }
+        }.deinit,
+        .pos = .ignore,
+    });
 
     pub fn update(self: *@This()) void {
         // FIXME: does this crash on 0 lines / 0 columns
-        self.pos.y = @min(self.pos.y, self.lines.items.len-1);
-        self.pos.x = @min(self.pos.x, self.lines.items[self.pos.y].len-1);
+        self.pos.y = @min(self.pos.y, self.lines.items.len - 1);
+        self.pos.x = @min(self.pos.x, self.lines.items[self.pos.y].len - 1);
     }
 
     pub fn addLine(self: *@This(), alloc: Allocator, line: []const u8) Allocator.Error!void {

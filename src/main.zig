@@ -37,7 +37,7 @@ pub fn mainLoop(alloc: Allocator, ui: anytype) !void {
     // const log = std.log.scoped(.editor);
 
     var editor = try Editor.init(alloc);
-    defer editor.deinitFull();
+    defer editor.deinitFull(alloc);
 
     var km_stack = std.ArrayList(Keymap).init(alloc);
     defer km_stack.deinit();
