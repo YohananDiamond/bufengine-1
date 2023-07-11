@@ -36,8 +36,8 @@ pub fn main() u8 {
 pub fn mainLoop(alloc: Allocator, ui: anytype) !void {
     // const log = std.log.scoped(.editor);
 
-    var editor = Editor{};
-    defer editor.deinit();
+    var editor = try Editor.init(alloc);
+    defer editor.deinitFull();
 
     var km_stack = std.ArrayList(Keymap).init(alloc);
     defer km_stack.deinit();
@@ -58,7 +58,7 @@ pub fn mainLoop(alloc: Allocator, ui: anytype) !void {
             if (keybinding.key != kc) continue;
 
             switch (keybinding.action) {
-                .DoFunc => |func| func(&editor),
+                .DoFunc => |func| try func(&editor),
                 .PushKeymap => |keymap| {
                     try km_stack.append(keymap.*);
 
@@ -82,6 +82,9 @@ pub fn mainLoop(alloc: Allocator, ui: anytype) !void {
             128...255 => |n| try ui._printf("Key <???> :: 0x%x or ASCII %d\r\n", .{ n, n }),
             else => |n| try ui._printf("Key %c :: 0x%x or ASCII %d\r\n", .{ n, n, n }),
         }
+
+        const buf = try editor.getCurrentBuffer();
+        buf.update();
     }
 }
 
@@ -96,6 +99,12 @@ const root_keymap = Keymap{
     .name = "Root Keymap",
     .keys = &[_]Keybinding{
         .{ .key = 'q', .action = .{ .DoFunc = Editor.actions.quit } },
+        .{ .key = 'h', .action = .{ .DoFunc = Editor.actions.moveLeft } },
+        .{ .key = 'j', .action = .{ .DoFunc = Editor.actions.moveDown } },
+        .{ .key = 'k', .action = .{ .DoFunc = Editor.actions.moveUp } },
+        .{ .key = 'l', .action = .{ .DoFunc = Editor.actions.moveRight } },
+        .{ .key = '0', .action = .{ .DoFunc = Editor.actions.moveXStart } },
+        .{ .key = '$', .action = .{ .DoFunc = Editor.actions.moveXEnd } },
         .{ .key = 'g', .action = .{ .PushKeymap = &bitch_keymap } },
     },
 };

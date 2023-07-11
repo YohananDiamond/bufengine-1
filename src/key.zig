@@ -12,12 +12,14 @@ pub fn isAsciiCtrl(key: Keycode) bool {
     };
 }
 
+pub const DummyError = error{DummyError};
+
 pub const Keybinding = struct {
     key: Keycode,
     action: Action,
 
     pub const Action = union(enum) {
-        DoFunc: *const fn (*Editor) void,
+        DoFunc: *const fn (*Editor) DummyError!void,
         PushKeymap: *const Keymap,
         PopKeymap: void,
     };

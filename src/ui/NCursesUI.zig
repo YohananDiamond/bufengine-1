@@ -8,12 +8,8 @@ const Keycode = key.Keycode;
 
 const Editor = @import("../Editor.zig");
 
-pub fn Vec2(comptime T: type) type {
-    return struct {
-        x: T,
-        y: T,
-    };
-}
+const math = @import("../math.zig");
+const Vec2 = math.Vec2;
 
 pub const InitError = error{InitError};
 pub const DeinitError = error{DeinitError};
@@ -32,6 +28,7 @@ pub fn init() InitError!Self {
 
     if (c.raw() == c.ERR) return error.InitError;
     if (c.noecho() == c.ERR) return error.InitError;
+    if (c.attroff(c.A_BLINK) == c.ERR) return error.InitError;
 
     return Self{
         .main_win = window,
@@ -51,14 +48,14 @@ pub fn waitForKey(self: *Self) UiError!Keycode {
     _ = self;
 
     const code = c.getch();
-    return @intCast(c_uint, code);
+    return @intCast(code);
 
     // TODO: how to detect errors?
 }
 
-pub fn print(self: *Self, text: [:0]const u8) UiError!void {
+pub fn print(self: *Self, text: []const u8) UiError!void {
     _ = self;
-    if (c.printw(text) == c.ERR)
+    if (c.addnstr(text.ptr, @intCast(text.len)) == c.ERR)
         return error.UiError;
 }
 
@@ -93,20 +90,22 @@ pub fn getSize(self: *const Self) UiError!Vec2(c_int) {
     const y = c.getmaxy(self.main_win);
     if (y == c.ERR) return error.UiError;
 
-    return Vec2(c_int){.x = x, .y = y};
+    return Vec2(c_int){ .x = x, .y = y };
 }
 
-pub fn drawEditor(self: *Self, editor: *const Editor) UiError!void {
+pub fn drawEditor(self: *Self, editor: *Editor) !void {
     const size = try self.getSize();
 
-    try self.setPos(.{.x = 0, .y = 0});
-    try self.print("Hello, world!");
+    const buf = try editor.getCurrentBuffer();
+    for (buf.lines.items, 0..) |line, y| {
+        if (y >= @as(usize, @intCast(size.y)) - 2) break;
+        try self.setPos(.{ .x = 0, .y = @intCast(y) });
+        const len = @min(@as(usize, @intCast(size.x)), line.len);
+        try self.print(line[0..len]);
+    }
 
-    try self.setPos(.{.x = 0, .y = 1});
-    try self._printf("Screen: %dx%d; Total chars: %d", .{size.x, size.y, size.x*size.y});
-
-    try self.setPos(.{.x = 0, .y = size.y - 2});
+    try self.setPos(.{ .x = 0, .y = size.y - 2 });
     try self.print(editor.last_message);
 
-    try self.setPos(.{.x = 0, .y = 0});
+    try self.setPos(.{ .x = @intCast(buf.pos.x), .y = @intCast(buf.pos.y) });
 }
